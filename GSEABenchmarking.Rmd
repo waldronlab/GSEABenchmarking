@@ -15,14 +15,17 @@ suppressPackageStartupMessages({
     library(GSEABenchmarkeR)
     library(EnrichmentBrowser)
     library(ggpubr)
-    library(ComplexHeatmap)
 })
 ```
 
 # Setup
-```{r setup}
+```{r packages}
 library(EnrichmentBrowser)
 library(GSEABenchmarkeR)
+library(ggpubr)
+```
+
+```{r cb.colors}
 cb.pink <- "#CC79A7"
 cb.darkred <- "#B42F32"
 cb.red <- "#D55E00"
@@ -78,9 +81,10 @@ plotDEDistribution(tcga.vst)
 ```
 
 Comparison of DE results for different RNA-seq approaches:
-- raw read counts + voom/limma
-- vst counts + limma
-- log2 TPMs + limma
+- raw read counts + voom/limma  
+- vst counts + limma  
+- TPMs + voom/limma
+- log2 TPMs + limma  
 
 ```{r corsDE}
 # VST
@@ -331,19 +335,6 @@ safe.kegg.rtimes <- list(vst=rseq.kegg.rtimes$safe, raw=raw.kegg.rtimes$safe)
 bpPlot(safe.kegg.rtimes, what="runtime")
 ```
 
-### Conclusion
-
-Median runtime:
-
-- KEGG: min: camera (0.25 *sec*); max: gsea (1.43 *min*)
-- GO: min: camera(7.7 *sec*); max: gsea (35.1 *min*) 
-
-Three groups:
-
-1. simple tests: camera, globaltest, ora, mgsa
-2. light permutation: gsva, safe, roast, ebm, samgs
-3. heavy permutation: gsa, padog, gsea
-
 ## Statistical significance 
 
 ```{r readRankings}
@@ -393,7 +384,6 @@ sig.sets <- evalNrSigSets(ea.random, alpha=0.05, padj="none")
 ind <- order( apply(sig.sets, 2, median) )
 sig.sets <- sig.sets[, ind]
 round(sig.sets, digits=1)
-GSEABenchmarkeR:::plotGSSizeRobustness(sig.sets, what="sig.sets")
 ```
 
 
@@ -404,10 +394,9 @@ df$Method <- substring(df$Method, 1, 7)
 df$Method <- factor(df$Method, levels=substring(rev(colnames(sig.sets)),1,7))
 df$Size <- sub("^gs", "", df$Size)
 col <- rev(get_palette(palette = "simpsons", 10))
-p <- ggline(df, x = "Size", y = "value", linetype = "Method", color="Method",
+ggline(df, x = "Size", y = "value", linetype = "Method", color="Method",
     palette = "simpsons", ylab="% significant sets", xlab="gene set size") +
-geom_hline(yintercept=5, linetype="dashed", color = cb.darkgrey) 
-p
+    geom_hline(yintercept=5, linetype="dashed", color = cb.darkgrey) 
 ```
 
 ### Adjusted *p*-values
@@ -545,8 +534,6 @@ kegg.res <- readTyI(kegg.dir)
 colnames(kegg.res)[11] <- sub("_igcNA$", "*", colnames(kegg.res)[11])
 go.res <- readTyI(go.dir)
 colnames(go.res)[11] <- sub("_igcNA$", "*", colnames(go.res)[11])
-GSEABenchmarkeR:::plotTypeIError(kegg.res)
-GSEABenchmarkeR:::plotTypeIError(go.res)
 ```
 
 ```{r evalTyI-results2}
@@ -575,58 +562,6 @@ plotTypeIError2 <- function(data, ylabel=0.4)
 plotTypeIError2(kegg.res, ylabel=0.8) 
 plotTypeIError2(go.res) 
 ```
-
-### Type I error rate: random gene sets of increasing size with shuffled sample labels
-
-TODO: recompute for ORA and EBM
-
-```{r rand-dir2}
-random.dir <- file.path(golub.dir, "randomGS", "shuffled_labels")
-ea.random.typeI <- readResults(random.dir, gs.grid, 
-                                methods=ea.methods, type="typeI")
-ea.random.typeI
-```
-
-```{r rand-plot}
-mean.mat <- vapply(ea.random.typeI, function(x) x["Mean",], numeric(7))
-med.mat <- vapply(ea.random.typeI, function(x) x["Median",], numeric(7))
-GSEABenchmarkeR:::plotGSSizeRobustness(mean.mat, what="typeI")
-GSEABenchmarkeR:::plotGSSizeRobustness(med.mat, what="typeI")
-```
-
-### Conclusion
-
-- Nominal *p*-values:
-    Three groups:
-    1. 5-10% sig sets: camera, gsea, padog, gsa, safe, ora
-    2. 25% sig sets: roast, gsva
-    3. \>90%: globaltest, samgs (show a clear gene set size dependency)
-
-- Adjusted *p*-values: flattens out signal for most methods, independent of
-    gene set DB (GO/KEGG), number of permutations, and whether a built-in 
-    correction is used; recommendable for `roast` and `gsva`; does not make a 
-    difference for `globaltest` and `samgs`
-
-- Type I error rate:
-    1. Inflated type I error rates for `camera` (real gene sets) and `gsa` (real
-        and random gene sets)
-    2. Many methods show deflated median type I error rates with increasing gene
-         set size 
-    3. `globaltest` and `samgs` accurately control the type I 
-        error rate, yet their sensitive null hypothesis (self-contained) seems 
-        to render them of limited practical relevance 
-
-From the `globaltest` vignette (which is a top 5% Bioc package):
-
-Still, it is true that the null hypotheses that the global test tests is false 
-even if only a single gene in the gene set is associated with the phenotype; 
-especially smaller gene sets may therefore become significant as a result of 
-only a single significant gene.  
-However, because the test is directed especially against the alternative that 
-there are many associated genes, such examples are **rare** among larger gene sets.
-
-Rare = \>90% ??
-
 
 ## Phenotype relevance
 ### MalaCards disease relevance rankings
@@ -686,7 +621,7 @@ facetplot(ma.kegg.rel.sets, ma.go.rel.sets, rseq.kegg.rel.sets,
 
 competitive vs. self-contained
 
-```{relTests}
+```{r relTests}
 sc.methods <- c("samgs", "globaltest", "gsva", "roast")
 comp.methods <- c("ora", "gsea", "safe", "gsa", "padog", "camera")
 # per compendium + gsc
@@ -713,7 +648,7 @@ wilcox.test(
 )
 ```
 
-```{relMvsM}
+```{r relMvsM}
 testMethods <- function(m1, m2)
 {
     suppressWarnings({
@@ -750,13 +685,13 @@ nsets <- function(ranks, fract=0.2)
 }
 
 ma.kegg.rel.sets.t20 <- evalRelevance(ma.kegg.ranks, 
-    mala.kegg, d2d, top=nsets(ma.kegg.ranks$ora))
+    mala.kegg, d2d.map, top=nsets(ma.kegg.ranks$ora))
 ma.go.rel.sets.t20 <- evalRelevance(ma.go.ranks, 
-    mala.go, d2d, top=nsets(ma.go.ranks$ora))
+    mala.go, d2d.map, top=nsets(ma.go.ranks$ora))
 rseq.kegg.rel.sets.t20 <- evalRelevance(rseq.kegg.ranks, 
-    mala.kegg, d2d.tcga, top=nsets(rseq.kegg.ranks))
+    mala.kegg, d2d.tcga, top=nsets(rseq.kegg.ranks$ora))
 rseq.go.rel.sets.t20 <- evalRelevance(rseq.go.ranks, 
-    mala.go, d2d.tcga, top=nsets(rseq.go.ranks))
+    mala.go, d2d.tcga, top=nsets(rseq.go.ranks$ora))
 facetplot(ma.kegg.rel.sets.t20, ma.go.rel.sets.t20, rseq.kegg.rel.sets.t20, 
     rseq.go.rel.sets.t20, ylab="% optimal relevance score", vline=4.5)
 ```
