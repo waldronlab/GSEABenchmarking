@@ -189,6 +189,18 @@ length(go.gs)
 MASS::truehist(lengths(go.gs), nbins=50)
 ```
 
+## Random gene sets (Golub)
+
+Creating 100 random gene sets of size 5:
+
+```{r goGS}
+n <- 100
+s <- 5
+gs <- replicate(n, sample(names(se), s), simplify=FALSE)
+names(gs) <- paste0("gs", seq_len(n))
+```
+
+
 # Benchmarking
 
 ```{r resDir}
