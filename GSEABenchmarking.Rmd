@@ -193,13 +193,58 @@ MASS::truehist(lengths(go.gs), nbins=50)
 
 Creating 100 random gene sets of size 5:
 
-```{r goGS}
+```{r randGS}
 n <- 100
 s <- 5
 gs <- replicate(n, sample(names(se), s), simplify=FALSE)
 names(gs) <- paste0("gs", seq_len(n))
 ```
 
+# Enrichment methods
+
+```{r methods}
+ea.methods <- sbeaMethods()[1:10]
+```
+
+[Irizarry et al. (2009)](https://www.ncbi.nlm.nih.gov/pubmed/20048385)
+```{r irizarry}
+# (1) Irizarry's one-sample z-test
+ezscore <- function(genes, stats)
+{
+    gstats <- stats[genes]
+    tdash <- mean(gstats)
+    ez <- sqrt(length(genes)) * tdash
+    return(ez)
+}
+
+# (2) Irizarry's standardized X^2-test
+ex2score <- function(genes, stats)
+{
+    gstats <- stats[genes]
+    tdash <- mean(gstats)
+    lenm1 <- length(genes) - 1
+    ex2 <- sum((gstats - tdash)^2)
+    ex2 <- (ex2 - lenm1) / (2 * lenm1)
+    return(ex2)
+}
+
+irizarry <- function(se, gs, escore=ezscore)
+{ 
+    stat <- grep("STAT$", colnames(rowData(se)), value=TRUE)
+    stat <- rowData(se)[[stat]]
+    names(stat) <- names(se)
+ 
+    scores <- vapply(gs, escore, numeric(1), stats=stat)
+    ps <- 2 * pnorm(-abs(scores))  
+    # alternatively:     
+
+    res.tbl <- cbind(scores, ps) 
+    colnames(res.tbl) <- c("SCORE", "PVAL")
+    rownames(res.tbl) <- names(gs)
+
+    return(res.tbl)
+} 
+```
 
 # Benchmarking
 
@@ -210,7 +255,6 @@ geo.dir <- file.path(res.dir, "GEO2KEGG")
 
 ## Runtime
 ```{r keggRT}
-ea.methods <- sbeaMethods()[1:10]
 kegg.dir <- file.path(geo.dir, "kegg/perm1k")
 ma.kegg.rtimes <- readResults(kegg.dir, ma.ids, 
                                 methods=ea.methods, type="runtime")
@@ -279,7 +323,7 @@ bpPlot(rseq.go.rtimes, what="runtime")
 
 ```{r facetplot}
 facetplot <- function(ma.kegg, ma.go, rseq.kegg, rseq.go, 
-    ylab="% significant sets", vline=6.5, log=FALSE)
+    ylab="% significant sets", vline=6.5, hline=NA, log=FALSE, orderf=median)
 {
     l <- list(ma.kegg=ma.kegg, ma.go=ma.go, rseq.kegg=rseq.kegg, rseq.go=rseq.go)
     df <- reshape2::melt(l)
@@ -300,15 +344,17 @@ facetplot <- function(ma.kegg, ma.go, rseq.kegg, rseq.go,
     df$method <- substring(df$method, 1, 7)
     if(log) df$value <- log(df$value, base=10)
     o <- sort(vapply(split(df$value, df$method), 
-                        median, numeric(1), na.rm=TRUE))
+                        orderf, numeric(1), na.rm=TRUE))
     df$method <- factor(df$method, levels=names(o))
     p <- ggboxplot(df, x = "method", y = "value", 
         width = 0.8, ylab=ylab, xlab="", fill="method")
     p <- ggpar(p, x.text.angle=45, palette = "simpsons", legend="none") 
     if(!is.na(vline)) 
         p <- p + geom_vline(xintercept=vline, linetype="dashed", color = cb.darkgrey)
-    p <- facet(p, facet.by=c("compendium", "gsc"))     
-    return(p)
+    if(!is.na(hline)) 
+        p <- p + geom_hline(yintercept=hline, linetype="dashed", color = cb.red)
+
+    facet(p, facet.by=c("compendium", "gsc"))    
 }    
 ```
 
@@ -346,6 +392,13 @@ boxplot(rtimes, col = rep(rainbow(3), each=2), ylab = ylab)
 safe.kegg.rtimes <- list(vst=rseq.kegg.rtimes$safe, raw=raw.kegg.rtimes$safe)
 bpPlot(safe.kegg.rtimes, what="runtime")
 ```
+
+```{r iriRun}
+iri.methods <- c("ztest", "x2test")
+iri.dir <- file.path(res.dir, "irizarry", "geo2kegg", "kegg")
+
+```
+
 
 ## Statistical significance 
 
@@ -398,7 +451,6 @@ sig.sets <- sig.sets[, ind]
 round(sig.sets, digits=1)
 ```
 
-
 ```{r randGSTrue2}
 df <- reshape2::melt(sig.sets)
 colnames(df) <- c("Size", "Method", "value")
@@ -408,7 +460,30 @@ df$Size <- sub("^gs", "", df$Size)
 col <- rev(get_palette(palette = "simpsons", 10))
 ggline(df, x = "Size", y = "value", linetype = "Method", color="Method",
     palette = "simpsons", ylab="% significant sets", xlab="gene set size") +
-    geom_hline(yintercept=5, linetype="dashed", color = cb.darkgrey) 
+    geom_ribbon()
+    # geom_hline(yintercept=5, linetype="dashed", color = cb.darkgrey) 
+
+```
+
+```{r randGSTrueReps}
+random.dir <- paste(random.dir, "100reps", sep="_")
+ea.random.reps <- readResults(random.dir, gs.grid, 
+                                methods=ea.methods, type="typeI")
+means <- vapply(ea.random.reps, function(x) x["mean",], numeric(length(gs.grid))) 
+sds <- vapply(ea.random.reps, function(x) x["sd",], numeric(length(gs.grid)))
+
+df <- reshape2::melt(means)
+df2 <- reshape2::melt(sds)
+df <- cbind(df, df[,"value"] - df2[,"value"], df[,"value"] + df2[,"value"])
+
+colnames(df) <- c("Size", "Method", "value", "lower", "upper")
+df$Method <- substring(df$Method, 1, 7)
+df$Method <- factor(df$Method, levels=substring(rev(colnames(sig.sets)),1,7))
+df$Size <- sub("^gs", "", df$Size)
+col <- rev(get_palette(palette = "simpsons", 10))
+ggline(df, x = "Size", y = "value", linetype = "Method", color="Method",
+    palette = "simpsons", ylab="% significant sets", xlab="gene set size") +
+    geom_ribbon(aes(ymin=lower, ymax=upper, group=Method), alpha = 0.05)
 ```
 
 ### Adjusted *p*-values
@@ -482,14 +557,15 @@ plotCorDE(ma.de, ma.go.sig.sets)
 ```
 
 ```{r corDE2}
-cor.facetplot <- function(de, kegg.sig.sets, go.sig.sets)
+cor.facetplot <- function(de, kegg.sig.sets, go.sig.sets, 
+    xlab="% DE genes", ylab="% significant sets")
 {
     cors <- vapply(ea.methods, 
                 function(m) cor(de, kegg.sig.sets[,m], use="complete.obs"), 
                 numeric(1))
     o <- order(cors, decreasing=TRUE)
 
-    l <- list(KEGG=kegg.sig.sets, GO=go.sig.sets)
+    l <- list(KEGG=kegg.sig.sets, GO=go.sig.sets)
     df <- reshape2::melt(l)
     colnames(df)[c(1:2,4)] <- c("dataset", "method", "gsc")
     df$xvalue <- de[as.vector(df$dataset)] 
@@ -499,7 +575,7 @@ cor.facetplot <- function(de, kegg.sig.sets, go.sig.sets)
     col <- rev(get_palette(palette = "simpsons", 10))
     p <- ggline(df, x = "xvalue", y = "value", numeric.x.axis = TRUE, 
         linetype = "method", color="method",
-        palette = "simpsons", ylab="% significant sets", xlab="% DE genes")
+        palette = "simpsons", ylab=ylab, xlab=xlab)
     p <- facet(p, facet.by="gsc")     
     return(p)
 }
@@ -573,6 +649,94 @@ plotTypeIError2 <- function(data, ylabel=0.4)
 }
 plotTypeIError2(kegg.res, ylabel=0.8) 
 plotTypeIError2(go.res) 
+```
+
+```{r crossDatasetTypeI}
+# read type I error rates across benchmark compendia
+ma.kegg.dir <- file.path(geo.dir, "kegg", "typeI")
+ma.go.dir <- file.path(geo.dir, "go_bp", "typeI")
+rseq.kegg.dir <- file.path(vst.dir, "kegg", "typeI")
+rseq.go.dir <- file.path(vst.dir, "gobp", "typeI")
+ma.kegg.tI <- readResults(ma.kegg.dir, ma.ids, ea.methods, type="typeI")
+ma.go.tI <- readResults(ma.go.dir, ma.ids, ea.methods, type="typeI")
+rseq.kegg.tI <- readResults(rseq.kegg.dir, rseq.ids, ea.methods, type="typeI")
+rseq.go.tI <- readResults(rseq.go.dir, rseq.ids, ea.methods, type="typeI")
+
+# extract mean type I error rate
+getMeanTypeI <- function(tI)
+{
+    if(is.list(tI[["samgs"]]))
+        tI[["samgs"]] <- vapply(tI[["samgs"]], function(x) x[1:6], numeric(6))
+    vapply(tI, function(x) x["Mean",], numeric(ncol(tI[[1]])))
+}
+ma.kegg.means <- getMeanTypeI(ma.kegg.tI)
+ma.go.means <- getMeanTypeI(ma.go.tI)
+rseq.kegg.means <- getMeanTypeI(rseq.kegg.tI)
+rseq.go.means <- getMeanTypeI(rseq.go.tI)
+
+bp <- function(means)
+{
+    absdev <- abs(0.05 - colMeans(means, na.rm=TRUE))
+    ind <- order(absdev + colSds(means, na.rm=TRUE))
+    boxplot(means[,ind])
+    abline(h=0.05, col="red", lty=2)
+}
+
+absdevvar <- function(x, na.rm) 
+    abs(0.05 - mean(x, na.rm=na.rm)) + sd(x, na.rm=na.rm)
+facetplot(ma.kegg.means, ma.go.means, rseq.kegg.means, rseq.go.means,
+            ylab="type I error rate", vline=NA, hline=0.05, orderf=absdevvar)
+
+# compute inter-gene correlation (igc)
+igc <- function(se)
+{
+    grp <- colData(se)[, configEBrowser("GRP.COL")]
+    blk <- NULL
+    BLK.COL <- configEBrowser("BLK.COL")
+    if(BLK.COL %in% colnames(colData(se))) blk <- colData(se)[,BLK.COL]
+   
+    group <- factor(grp)
+    paired <- !is.null(blk)
+    f <- "~" 
+    if(paired) 
+    {   
+        block <- factor(blk)
+        f <- paste0(f, "block + ") 
+    }   
+    f <- formula(paste0(f, "group"))
+    design <- model.matrix(f)
+
+    y <- assay(se)
+    res <- limma::interGeneCorrelation(y, design)
+    res$correlation
+}
+
+# display in dependence of sample size and igc
+ma.ssize <- vapply(geo2kegg, ncol, integer(1))
+rseq.ssize <- vapply(tcga.vst, ncol, integer(1))
+ma.igcs <- vapply(geo2kegg, igc, numeric(1))
+rseq.igcs <- vapply(tcga.vst, igc, numeric(1)) 
+
+getCor <- function(means, v)
+    sort(apply(means, 2, function(x) cor(x, v, use="complete.obs")))
+
+# ma
+getCor(ma.kegg.means, ma.ssize)
+getCor(ma.go.means, ma.ssize)
+getCor(ma.kegg.means, ma.igcs)
+getCor(ma.go.means, ma.igcs)
+
+
+# rseq
+getCor(rseq.kegg.means, rseq.ssize)
+getCor(rseq.go.means, rseq.ssize)
+getCor(rseq.kegg.means, rseq.igcs)
+getCor(rseq.go.means, rseq.igcs)
+
+cor.facetplot(ma.ssize, ma.kegg.means, ma.go.means, xlab="sample size", ylab="type I error rate")
+cor.facetplot(ma.igcs, ma.kegg.means, ma.go.means, xlab="inter-gene correlation", ylab="type I error rate")
+cor.facetplot(rseq.ssize, rseq.kegg.means, rseq.go.means, xlab="sample size", ylab="type I error rate")
+cor.facetplot(rseq.igcs, rseq.kegg.means, rseq.go.means, xlab="inter-gene correlation", ylab="type I error rate")
 ```
 
 ## Phenotype relevance
@@ -688,6 +852,8 @@ vapply(setdiff(ea.methods, "padog"),
         numeric(5))
 ```
 
+Only considering relevance accumulated in the top 20\% of each ranking:
+
 ```{r relTop20, fig.width=6, fig.height=6}
 nsets <- function(ranks, fract=0.2)
 {
@@ -707,5 +873,38 @@ rseq.go.rel.sets.t20 <- evalRelevance(rseq.go.ranks,
 facetplot(ma.kegg.rel.sets.t20, ma.go.rel.sets.t20, rseq.kegg.rel.sets.t20, 
     rseq.go.rel.sets.t20, ylab="% optimal relevance score", vline=4.5)
 ```
+
+Identifying datasets that agree well (or not) with associated malacards ranking:
+
+```{r fit_d2r}
+plotRelDistr <- function(rel.sets, methods, d2d)
+{
+    rownames(rel.sets) <- paste0(rownames(rel.sets), 
+        " (", d2d[rownames(rel.sets)], ")")
+    df <- reshape2::melt(rel.sets[,methods])
+    medians <- rowMedians(rel.sets[,methods], na.rm=TRUE)
+    o <- rownames(rel.sets)[order(medians)]
+    p <- ggboxplot(df, x = "Var1", y = "value", width = 0.8,
+                ylab="%opt", xlab="", order=o, add ="jitter")#, color="Var1")
+    ggpar(p, x.text.angle=45, legend="none")
+}
+plotRelDistr(ma.kegg.rel.sets, comp.methods, d2d.map)
+plotRelDistr(ma.go.rel.sets, comp.methods, d2d.map)
+plotRelDistr(rseq.kegg.rel.sets, comp.methods, d2d.tcga)
+plotRelDistr(rseq.go.rel.sets, comp.methods, d2d.tcga)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
