@@ -236,7 +236,6 @@ irizarry <- function(se, gs, escore=ezscore)
  
     scores <- vapply(gs, escore, numeric(1), stats=stat)
     ps <- 2 * pnorm(-abs(scores))  
-    # alternatively:     
 
     res.tbl <- cbind(scores, ps) 
     colnames(res.tbl) <- c("SCORE", "PVAL")
@@ -459,8 +458,7 @@ df$Method <- factor(df$Method, levels=substring(rev(colnames(sig.sets)),1,7))
 df$Size <- sub("^gs", "", df$Size)
 col <- rev(get_palette(palette = "simpsons", 10))
 ggline(df, x = "Size", y = "value", linetype = "Method", color="Method",
-    palette = "simpsons", ylab="% significant sets", xlab="gene set size") +
-    geom_ribbon()
+    palette = "simpsons", ylab="% significant sets", xlab="gene set size")
     # geom_hline(yintercept=5, linetype="dashed", color = cb.darkgrey) 
 
 ```
