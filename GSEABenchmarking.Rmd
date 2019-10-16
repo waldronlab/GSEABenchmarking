@@ -892,9 +892,63 @@ plotRelDistr(rseq.kegg.rel.sets, comp.methods, d2d.tcga)
 plotRelDistr(rseq.go.rel.sets, comp.methods, d2d.tcga)
 ```
 
+Inspecting 
+```{r}
+d <- "GSE14924_CD4"
+cutoffs <- seq(10, 100, by=10),
+rel.sets <- evalRelevance(ma.kegg.ranks, mala.kegg, d2d.map, perc=FALSE)
+rel.sets <- rel.sets[,-11]
 
+d <- "GSE19188"
+cutoffs <- seq(10, 60, by=10),
+rel.sets <- evalRelevance(ma.go.ranks, mala.go, d2d.map, perc=FALSE)
+rel.sets <- rel.sets[,-11]
 
+d <- "THCA"
+cutoffs <- seq(10, 80, by=10),
+rel.sets <- evalRelevance(rseq.kegg.ranks, mala.kegg, d2d.tcga, perc=FALSE)
+rel.sets <- rel.sets[,-11]
 
+d <- "THCA"
+cutoffs <- seq(10, 80, by=10),
+rel.sets <- evalRelevance(rseq.go.ranks, mala.go, d2d.tcga, perc=FALSE)
+rel.sets <- rel.sets[,-11]
+
+```
+
+```{r cutoffs}
+plotCutoffs <- function(d = "GSE14924_CD4", 
+                        cutoffs = seq(10, 100, by=10),
+                        ea.ranks,
+                        rel.ranks,
+                        rel.sets,
+                        d2d.map)
+{
+    evalCutoff <- function(d, cutoff)
+    {
+        rel.ranks <- rel.ranks[[d2d.map[d]]]
+        ind <- rel.ranks$REL.SCORE > cutoff
+        rel.ranks <- rel.ranks[ind,]
+        vapply(ea.methods, 
+            function(m) evalRelevance(ea.ranks[[m]][[d]], rel.ranks),
+            numeric(1))
+    }
+
+    res <- vapply(cutoffs, evalCutoff, d=d, numeric(10))
+    res2 <- rel.sets[d,]- res
+    res2 <- cbind(res2, rel.sets[d, ])
+    colnames(res2) <- c(cutoffs, "all")
+
+    df <- reshape2::melt(res2)
+    colnames(df) <- c("Method", "Cutoff", "value")
+    df$Method <- substring(df$Method, 1, 7)
+    m <- rownames(res2)[order(res2[,ncol(res2)], decreasing=TRUE)]
+    df$Method <- factor(df$Method, levels=substring(m,1,7))
+    col <- rev(get_palette(palette = "simpsons", 10))
+    ggline(df, x = "Cutoff", y = "value", linetype = "Method", color="Method",
+    palette = "simpsons", ylab="REL.SCORE", xlab="cutoff")
+}
+```
 
 
 
